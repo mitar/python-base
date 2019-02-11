@@ -81,7 +81,7 @@ class Watch(object):
     def unmarshal_event(self, data, return_type):
         js = json.loads(data)
         js['raw_object'] = js['object']
-        if return_type:
+        if return_type and js['type'] != 'ERROR':
             obj = SimpleNamespace(data=json.dumps(js['raw_object']))
             js['object'] = self._api_client.deserialize(obj, return_type)
             if hasattr(js['object'], 'metadata'):
@@ -128,11 +128,26 @@ class Watch(object):
             self.resource_version = kwargs['resource_version']
 
         timeouts = ('timeout_seconds' in kwargs)
+        retry_after_410 = False
         while True:
             resp = func(*args, **kwargs)
             try:
                 for line in iter_resp_lines(resp):
-                    yield self.unmarshal_event(line, return_type)
+                    event = self.unmarshal_event(line, return_type)
+                    if isinstance(event, dict) and event['type'] == 'ERROR':
+                        obj = event['raw_object']
+                        # Current request expired, let's retry,
+                        # but only if we have not already retried.
+                        if not retry_after_410 and obj['code'] == 410:
+                            retry_after_410 = True
+                            break
+                        else:
+                            reason = "%s: %s" % (obj['reason'], obj['message'])
+                            raise client.rest.ApiException(status=obj['code'],
+                                                           reason=reason)
+                    else:
+                        retry_after_410 = False
+                        yield event
                     if self._stop:
                         break
             finally:
