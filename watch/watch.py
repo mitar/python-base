@@ -97,6 +97,14 @@ class Watch(object):
     def stream(self, func, *args, **kwargs):
         """Watch an API resource and stream the result back via a generator.
 
+        Note that watching an API resource can expire. The method tries to
+        resume automatically from the last result, but if that last result
+        is too old as well, an `ApiException` exception will be thrown with
+        ``code`` 410. In that case you have to recover yourself, probably
+        by listing the API resource to obtain the latest state and then
+        watching from that state on by setting ``resource_version`` to
+        one returned from listing.
+
         :param func: The API function pointer. Any parameter to the function
                      can be passed after this parameter.
 
